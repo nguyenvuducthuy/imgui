@@ -6,6 +6,11 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include <stdio.h>
+#include <string>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
 
 // About OpenGL function loaders: modern OpenGL doesn't have a standard header file and requires individual function pointers to be loaded manually. 
 // Helper libraries are often used for this purpose! Here we are supporting a few common ones: gl3w, glew, glad.
@@ -33,6 +38,134 @@
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
+}
+
+GLuint LoadShaders(const char * vertex_file_path, const char * fragment_file_path) {
+
+	// Create the shaders
+	GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
+	GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
+
+	// Read the Vertex Shader code from the file
+	std::string VertexShaderCode;
+	std::ifstream VertexShaderStream(vertex_file_path, std::ios::in);
+	if (VertexShaderStream.is_open()) {
+		std::stringstream sstr;
+		sstr << VertexShaderStream.rdbuf();
+		VertexShaderCode = sstr.str();
+		VertexShaderStream.close();
+	}
+	else {
+		printf("Impossible to open %s. Are you in the right directory ? Don't forget to read the FAQ !\n", vertex_file_path);
+		getchar();
+		return 0;
+	}
+
+	// Read the Fragment Shader code from the file
+	std::string FragmentShaderCode;
+	std::ifstream FragmentShaderStream(fragment_file_path, std::ios::in);
+	if (FragmentShaderStream.is_open()) {
+		std::stringstream sstr;
+		sstr << FragmentShaderStream.rdbuf();
+		FragmentShaderCode = sstr.str();
+		FragmentShaderStream.close();
+	}
+
+	GLint Result = GL_FALSE;
+	int InfoLogLength;
+
+	// Compile Vertex Shader
+	printf("Compiling shader : %s\n", vertex_file_path);
+	char const * VertexSourcePointer = VertexShaderCode.c_str();
+	glShaderSource(VertexShaderID, 1, &VertexSourcePointer, NULL);
+	glCompileShader(VertexShaderID);
+
+	// Check Vertex Shader
+	glGetShaderiv(VertexShaderID, GL_COMPILE_STATUS, &Result);
+	glGetShaderiv(VertexShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+	if (InfoLogLength > 0) {
+		std::vector<char> VertexShaderErrorMessage(InfoLogLength + 1);
+		glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
+		printf("%s\n", &VertexShaderErrorMessage[0]);
+	}
+
+	// Compile Fragment Shader
+	printf("Compiling shader : %s\n", fragment_file_path);
+	char const * FragmentSourcePointer = FragmentShaderCode.c_str();
+	glShaderSource(FragmentShaderID, 1, &FragmentSourcePointer, NULL);
+	glCompileShader(FragmentShaderID);
+
+	// Check Fragment Shader
+	glGetShaderiv(FragmentShaderID, GL_COMPILE_STATUS, &Result);
+	glGetShaderiv(FragmentShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+	if (InfoLogLength > 0) {
+		std::vector<char> FragmentShaderErrorMessage(InfoLogLength + 1);
+		glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
+		printf("%s\n", &FragmentShaderErrorMessage[0]);
+	}
+
+	// Link the program
+	printf("Linking program\n");
+	GLuint ProgramID = glCreateProgram();
+	glAttachShader(ProgramID, VertexShaderID);
+	glAttachShader(ProgramID, FragmentShaderID);
+	glLinkProgram(ProgramID);
+
+	// Check the program
+	glGetProgramiv(ProgramID, GL_LINK_STATUS, &Result);
+	glGetProgramiv(ProgramID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+	if (InfoLogLength > 0) {
+		std::vector<char> ProgramErrorMessage(InfoLogLength + 1);
+		glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
+		printf("%s\n", &ProgramErrorMessage[0]);
+	}
+
+	glDetachShader(ProgramID, VertexShaderID);
+	glDetachShader(ProgramID, FragmentShaderID);
+
+	glDeleteShader(VertexShaderID);
+	glDeleteShader(FragmentShaderID);
+
+	return ProgramID;
+}
+
+static void draw_callback(const ImDrawList* parent_list, const ImDrawCmd* cmd)
+{
+	printf("hello!\n");
+	{
+		static GLuint programID = LoadShaders("SimpleVertexShader.vertexshader", "SimpleFragmentShader.fragmentshader");
+		glViewport(0, 0, 300, 300);
+
+		glUseProgram(programID);
+
+		GLuint VertexArrayID;
+		glGenVertexArrays(1, &VertexArrayID);
+		glBindVertexArray(VertexArrayID);
+
+		static const GLfloat g_vertex_buffer_data[] = {
+			-1.0f, -1.0f, 0.0f,
+			1.0f, -1.0f, 0.0f,
+			0.0f, 1.0f, 0.0f,
+		};
+
+		GLuint vertexbuffer;
+		glGenBuffers(1, &vertexbuffer);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
+
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+		glVertexAttribPointer(
+			0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+			3,                  // size
+			GL_FLOAT,           // type
+			GL_FALSE,           // normalized?
+			0,                  // stride
+			(void *)0            // array buffer offset
+		);
+		glDrawArrays(GL_TRIANGLES, 0, 3); // Starting from vertex 0; 3 vertices total -> 1 triangle
+		glDisableVertexAttribArray(0);
+	}
 }
 
 int main(int, char**)
@@ -163,9 +296,49 @@ int main(int, char**)
         {
             ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
             ImGui::Text("Hello from another window!");
+			ImGui::GetWindowDrawList()->AddCallback(draw_callback, NULL);
             if (ImGui::Button("Close Me"))
                 show_another_window = false;
             ImGui::End();
+
+			//////////////////////////////////////////
+			//==============
+			//opengl window
+			//=============
+			// My Game has a different viewport than the editor's one:
+			bool runApp = true;
+			const int W = 1080 / 2;
+			const int H = 1920 / 2;
+			// We set the same viewport size (plus margin) to the next window (if first use)
+			ImGui::SetNextWindowSize(ImVec2(W + 10, H + 10),
+				ImGuiSetCond_FirstUseEver);
+			ImGui::Begin("Game rendering");
+			{
+				// Get the current cursor position (where your window is)
+				ImVec2 pos = ImGui::GetCursorScreenPos();
+
+				// A boolean to allow me to stop the game rendering
+				if (runApp) {
+					glViewport(0, 0, W, H);
+					// Render the scene into an FBO
+					game->render(time);
+					// Restore previous viewport
+					glViewport(0, 0, w, h);
+				}
+				// Get the texture associated to the FBO
+				auto tex = game->getRendered();
+
+				// Ask ImGui to draw it as an image:
+				// Under OpenGL the ImGUI image type is GLuint
+				// So make sure to use "(void *)tex" but not "&tex"
+				ImGui::GetWindowDrawList()->AddImage(
+					(void *)tex, ImVec2(ImGui::GetItemRectMin().x + pos.x,
+						ImGui::GetItemRectMin().y + pos.y),
+					ImVec2(pos.x + h / 2, pos.y + w / 2), ImVec2(0, 1), ImVec2(1, 0));
+			}
+			ImGui::End();
+			//////////////////////////////////////////
+
         }
 
         // Rendering
